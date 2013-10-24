@@ -38,6 +38,7 @@ class RequestObj(Bunch):
     headers: a dictionary of header / value pairs 
         (for example {'Content-Type': 'text/plain', 'Content-Length': 200})
     follow_redirects: true to follow redirects before returning a response
+    context: a dictionary to place data that will be accessible to the response
     '''
     pass
 
@@ -52,6 +53,7 @@ class ResponseObj(Bunch):
         other headeres will be stripped out. By default this includes:
         ('Date', 'Cache-Control', 'Server', 'Content-Type', 'Location')
     body: response body as a string
+    context: the context object from the request
     '''
     pass
 
@@ -98,6 +100,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 body=request.body,
                 headers=request.headers,
                 follow_redirects=False,
+                context={}
             )
 
             if debug_level >= 1:
@@ -146,19 +149,24 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 print ">>>>>>>> REQUEST >>>>>>>>"
                 pprint.pprint(req.__dict__)
 
+            def _resp_callback(response):
+                self.handle_response(response, context=mod.context)
+
             client = tornado.httpclient.AsyncHTTPClient()
             try:
-                client.fetch(req, self.handle_response)
+                client.fetch(req, _resp_callback)
             except tornado.httpclient.HTTPError as e:
                 if hasattr(e, 'response') and e.response:
-                    self.handle_response(e.response, error=True)
+                    self.handle_response(e.response, 
+                                         context=mod.context,
+                                         error=True)
                 else:
                     self.set_status(500)
                     self.write('Internal server error:\n' + str(e))
                     self.finish()
 
 
-        def handle_response(self, response, error=False):
+        def handle_response(self, response, context={}, error=False):
 
             if debug_level >= 3:
                 import pprint;
@@ -170,14 +178,15 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 headers=response.headers,
                 pass_headers=('Date', 'Cache-Control', 'Server',
                     'Content-Type', 'Location'),
-                body=response.body
+                body=response.body,
+                context=context,
             )
 
             if debug_level >= 1:
                 import pprint;
                 print "<<<<<<<< RESPONSEOBJ <<<<<<<"
                 responseprint = copy(responseobj)
-                del responseprint['body']
+                responseprint.body = "-- body content not displayed --"
                 pprint.pprint(responseprint.__dict__)
 
             if not error:
