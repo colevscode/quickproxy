@@ -17,6 +17,7 @@ This proxy will fetch responses from an AWS s3 bucket with the same ID as the re
 
 	def callback(request):
 		request.host = request.host+".s3-website-us-east-1.amazonaws.com"
+		request.port = 80
 		return request
 
 	quickproxy.run_proxy(port=8080, req_callback=callback)
@@ -97,7 +98,7 @@ The ResponseObj is a python object with the following attributes that can be mod
 - headers: the response headers 
 
 - pass_headers: a list or set of headers to pass along in the response. All
-    other headeres will be stripped out. By default this includes:
+    other headers will be stripped out. By default this includes:
 
     `('Date', 'Cache-Control', 'Server', 'Content-Type', 'Location')`
 
@@ -110,7 +111,5 @@ Much of this code was adopted from Senko's tornado-proxy:
 
 https://github.com/senko/tornado-proxy
 
-...which is itself based on the code by Bill Janssen posted to: http://groups.
-
-google.com/group/python-tornado/msg/7bea08e7a049cf26
+...which is itself based on the code by Bill Janssen posted to: http://groups.google.com/group/python-tornado/msg/7bea08e7a049cf26
 
