@@ -16,6 +16,9 @@ class Bunch:
     def __init__(self, **kwds):
         self.__dict__.update(kwds)
 
+    def __str__(self):
+        return str(self.__dict__)
+
 
 class RequestObj(Bunch):
     '''
@@ -25,7 +28,6 @@ class RequestObj(Bunch):
     host: the destination hostname of the request
     port: the port for the request
     path: the path of the request ('/index.html' for example)
-    parameters: the parameter string at the end of the path ('/path;parameter')
     query: the query string ('?key=value&other=value')
     fragment: the hash fragment ('#fragment')
     method: request method ('GET', 'POST', etc)
@@ -54,7 +56,7 @@ class ResponseObj(Bunch):
 
 
 
-def _make_proxy(methods, req_callback, resp_callback, err_callback):
+def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False):
 
     class ProxyHandler(tornado.web.RequestHandler):
 
@@ -66,6 +68,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback):
             # surprisingly, tornado's HTTPRequest sometimes
             # has a uri field with the full uri (http://...)
             # and sometimes it just contains the path. :(
+
+            if debug:
+                import pprint;
+                print "<<<<<<<< REQUEST <<<<<<<<"
+                pprint.pprint(request.__dict__)
 
             url = request.uri
             if not url.startswith(u'http'):
@@ -85,15 +92,16 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback):
                 host=parsed.hostname,
                 port=parsed.port,
                 path=parsed.path,
-                parameters=parsed.params,
                 query=parsed.query,
                 fragment=parsed.fragment,
                 body=request.body,
                 headers=request.headers,
-                follow_redirects=True
+                follow_redirects=False,
             )
 
             mod = req_callback(requestobj)
+
+            mod.headers["Host"] = mod.host
 
             if mod.username or parsed.username or \
                 mod.password or parsed.password:
@@ -106,15 +114,14 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback):
             else:
                 auth = ''
 
-            url = u"{proto}://{auth}{host}{port}{path}{params}{query}{frag}"
+            url = u"{proto}://{auth}{host}{port}{path}{query}{frag}"
             url = url.format(
                 proto=mod.protocol,
                 auth=auth,
                 host=mod.host,
                 port=(u':' + str(mod.port)) if mod.port else u'',
                 path=u'/'+mod.path.lstrip(u'/') if mod.path else u'',
-                params=mod.parameters,
-                query=mod.query,
+                query=u'?'+mod.query.lstrip(u'?') if mod.query else u'',
                 frag=mod.fragment
             )
 
@@ -140,6 +147,12 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback):
 
 
         def handle_response(self, response, error=False):
+
+            if debug:
+                import pprint;
+                print ">>>>>>>> RESPONSE >>>>>>>"
+                pprint.pprint(response.__dict__)
+
 
             responseobj = ResponseObj(
                 code=response.code,
@@ -197,7 +210,8 @@ def run_proxy(port,
               req_callback=DEFAULT_CALLBACK,
               resp_callback=DEFAULT_CALLBACK,
               err_callback=DEFAULT_CALLBACK,
-              start_ioloop=True):
+              start_ioloop=True,
+              debug=False):
 
     """
     Run proxy on the specified port. 
@@ -212,13 +226,15 @@ def run_proxy(port,
         used.
     start_ioloop: if True (default), the tornado IOLoop will be started 
         immediately.
+    debug: if True, will print a ton of debug data (default False)
     """
 
     app = tornado.web.Application([
         (r'.*', _make_proxy(methods=methods,
                             req_callback=req_callback,
                             resp_callback=resp_callback,
-                            err_callback=err_callback)),
+                            err_callback=err_callback,
+                            debug=debug)),
     ])
     app.listen(port)
     ioloop = tornado.ioloop.IOLoop.instance()

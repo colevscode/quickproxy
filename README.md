@@ -68,8 +68,6 @@ The RequestObj is a python object with the following attributes that can be modi
 
 - path: the path of the request ('/index.html' for example)
 
-- parameters: the parameter string at the end of the path ('/path;parameter')
-
 - query: the query string ('?key=value&other=value')
 
 - fragment: the hash fragment ('#fragment')
