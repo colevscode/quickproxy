@@ -1,5 +1,6 @@
 import sys
 import urlparse
+from copy import copy
 
 import tornado.httpserver
 import tornado.ioloop
@@ -175,15 +176,26 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
             if debug_level >= 1:
                 import pprint;
                 print "<<<<<<<< RESPONSEOBJ <<<<<<<"
-                pprint.pprint(responseobj.__dict__)
+                responseprint = copy(responseobj)
+                del responseprint['body']
+                pprint.pprint(responseprint.__dict__)
 
             if not error:
                 mod = resp_callback(responseobj)
             else:
                 mod = err_callback(responseobj)
 
+            # set the response status code
+
             self.set_status(mod.code)
-            for header in mod.pass_headers or mod.headers.keys():
+
+            # set the response headers
+
+            if hasattr(mod, 'pass_headers') and mod.pass_headers:
+                headers = mod.pass_headers
+            else:
+                headers = mod.headers.keys()
+            for header in headers:
                 v = mod.headers.get(header)
                 if v:
                     self.set_header(header, v)
@@ -193,8 +205,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 print ">>>>>>>> RESPONSE >>>>>>>"
                 pprint.pprint(self.__dict__)            
 
+            # set the response body
+
             if mod.body:
                 self.write(mod.body)
+
             self.finish()
 
 
