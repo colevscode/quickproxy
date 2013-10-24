@@ -56,7 +56,7 @@ class ResponseObj(Bunch):
 
 
 
-def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False):
+def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=0):
 
     class ProxyHandler(tornado.web.RequestHandler):
 
@@ -69,7 +69,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
             # has a uri field with the full uri (http://...)
             # and sometimes it just contains the path. :(
 
-            if debug:
+            if debug_level >= 3:
                 import pprint;
                 print "<<<<<<<< REQUEST <<<<<<<<"
                 pprint.pprint(request.__dict__)
@@ -98,6 +98,12 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
                 headers=request.headers,
                 follow_redirects=False,
             )
+
+            if debug_level >= 1:
+                import pprint;
+                print "<<<<<<<< REQUESTOBJ <<<<<<<<"
+                pprint.pprint(requestobj.__dict__)
+
 
             mod = req_callback(requestobj)
 
@@ -134,6 +140,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
                 allow_nonstandard_methods=True
             )
 
+            if debug_level >= 2:
+                import pprint;
+                print ">>>>>>>> REQUEST >>>>>>>>"
+                pprint.pprint(req.__dict__)
+
             client = tornado.httpclient.AsyncHTTPClient()
             try:
                 client.fetch(req, self.handle_response)
@@ -148,11 +159,10 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
 
         def handle_response(self, response, error=False):
 
-            if debug:
+            if debug_level >= 3:
                 import pprint;
-                print ">>>>>>>> RESPONSE >>>>>>>"
+                print "<<<<<<<< RESPONSE <<<<<<<"
                 pprint.pprint(response.__dict__)
-
 
             responseobj = ResponseObj(
                 code=response.code,
@@ -161,6 +171,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
                     'Content-Type', 'Location'),
                 body=response.body
             )
+
+            if debug_level >= 1:
+                import pprint;
+                print "<<<<<<<< RESPONSEOBJ <<<<<<<"
+                pprint.pprint(responseobj.__dict__)
 
             if not error:
                 mod = resp_callback(responseobj)
@@ -172,6 +187,12 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug=False)
                 v = mod.headers.get(header)
                 if v:
                     self.set_header(header, v)
+
+            if debug_level >= 2:
+                import pprint;
+                print ">>>>>>>> RESPONSE >>>>>>>"
+                pprint.pprint(self.__dict__)            
+
             if mod.body:
                 self.write(mod.body)
             self.finish()
@@ -211,7 +232,7 @@ def run_proxy(port,
               resp_callback=DEFAULT_CALLBACK,
               err_callback=DEFAULT_CALLBACK,
               start_ioloop=True,
-              debug=False):
+              debug_level=0):
 
     """
     Run proxy on the specified port. 
@@ -226,7 +247,7 @@ def run_proxy(port,
         used.
     start_ioloop: if True (default), the tornado IOLoop will be started 
         immediately.
-    debug: if True, will print a ton of debug data (default False)
+    debug_level: 0 no debug, 1 basic, 2 verbose
     """
 
     app = tornado.web.Application([
@@ -234,7 +255,7 @@ def run_proxy(port,
                             req_callback=req_callback,
                             resp_callback=resp_callback,
                             err_callback=err_callback,
-                            debug=debug)),
+                            debug_level=debug_level)),
     ])
     app.listen(port)
     ioloop = tornado.ioloop.IOLoop.instance()
