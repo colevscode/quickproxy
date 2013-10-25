@@ -1,5 +1,6 @@
 import sys
 import urlparse
+import pprint
 from copy import copy
 
 import tornado.httpserver
@@ -58,24 +59,21 @@ class ResponseObj(Bunch):
     pass
 
 
-
 def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=0):
 
     class ProxyHandler(tornado.web.RequestHandler):
 
         SUPPORTED_METHODS = methods
 
+        def make_requestobj(self, request):
+            '''
+            creates a request object for this request
+            '''
 
-        def handle_request(self, request):
-
+            # get url for request
             # surprisingly, tornado's HTTPRequest sometimes
             # has a uri field with the full uri (http://...)
             # and sometimes it just contains the path. :(
-
-            if debug_level >= 3:
-                import pprint;
-                print "<<<<<<<< REQUEST <<<<<<<<"
-                pprint.pprint(request.__dict__)
 
             url = request.uri
             if not url.startswith(u'http'):
@@ -85,40 +83,42 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                     path=request.uri
                 )
 
-            parsed = urlparse.urlparse(url)
+            parsedurl = urlparse.urlparse(url)
+
+            # create request object
 
             requestobj = RequestObj(
                 method=request.method,
-                protocol=parsed.scheme,
+                protocol=parsedurl.scheme,
                 username=None,
                 password=None,
-                host=parsed.hostname,
-                port=parsed.port,
-                path=parsed.path,
-                query=parsed.query,
-                fragment=parsed.fragment,
+                host=parsedurl.hostname,
+                port=parsedurl.port,
+                path=parsedurl.path,
+                query=parsedurl.query,
+                fragment=parsedurl.fragment,
                 body=request.body,
                 headers=request.headers,
                 follow_redirects=False,
                 context={}
             )
 
-            if debug_level >= 1:
-                import pprint;
-                print "<<<<<<<< REQUESTOBJ <<<<<<<<"
-                pprint.pprint(requestobj.__dict__)
+            return requestobj, parsedurl
 
 
-            mod = req_callback(requestobj)
+        def make_request(self, obj, parsedurl):
+            '''
+            converts a request object into an HTTPRequest
+            '''
 
-            mod.headers["Host"] = mod.host
+            obj.headers["Host"] = obj.host
 
-            if mod.username or parsed.username or \
-                mod.password or parsed.password:
+            if obj.username or parsedurl.username or \
+                obj.password or parsedurl.password:
 
                 auth = u"{username}:{password}@".format(
-                    username=mod.username or parsed.username,
-                    password=mod.password or parsed.password
+                    username=obj.username or parsedurl.username,
+                    password=obj.password or parsedurl.password
                 )
 
             else:
@@ -126,39 +126,70 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             url = u"{proto}://{auth}{host}{port}{path}{query}{frag}"
             url = url.format(
-                proto=mod.protocol,
+                proto=obj.protocol,
                 auth=auth,
-                host=mod.host,
-                port=(u':' + str(mod.port)) if mod.port else u'',
-                path=u'/'+mod.path.lstrip(u'/') if mod.path else u'',
-                query=u'?'+mod.query.lstrip(u'?') if mod.query else u'',
-                frag=mod.fragment
+                host=obj.host,
+                port=(u':' + str(obj.port)) if obj.port else u'',
+                path=u'/'+obj.path.lstrip(u'/') if obj.path else u'',
+                query=u'?'+obj.query.lstrip(u'?') if obj.query else u'',
+                frag=obj.fragment
             )
 
             req = tornado.httpclient.HTTPRequest(
                 url=url,
-                method=mod.method, 
-                body=mod.body,
-                headers=mod.headers, 
-                follow_redirects=mod.follow_redirects,
+                method=obj.method, 
+                body=obj.body,
+                headers=obj.headers, 
+                follow_redirects=obj.follow_redirects,
                 allow_nonstandard_methods=True
             )
 
+            return req
+
+
+        def handle_request(self, request):
+
+            if debug_level >= 4:
+                print "<<<<<<<< REQUEST <<<<<<<<"
+                pprint.pprint(request.__dict__)
+
+            requestobj, parsedurl = self.make_requestobj(request)
+
             if debug_level >= 2:
-                import pprint;
+                print "<<<<<<<< REQUESTOBJ <<<<<<<<"
+                pprint.pprint(requestobj.__dict__)
+
+            if debug_level >= 1:
+                debugstr = "serving request from %s:%d%s " % (requestobj.host, 
+                                                              requestobj.port or 80,
+                                                              requestobj.path)
+
+            modrequestobj = req_callback(requestobj)
+
+
+            if debug_level >= 1:
+                print debugstr + "to %s:%d%s" % (modrequestobj.host, 
+                                                 modrequestobj.port or 80,
+                                                 modrequestobj.path)
+
+            outreq = self.make_request(modrequestobj, parsedurl)
+
+            if debug_level >= 3:
                 print ">>>>>>>> REQUEST >>>>>>>>"
-                pprint.pprint(req.__dict__)
+                pprint.pprint(outreq.__dict__)
+
+            # send the request
 
             def _resp_callback(response):
-                self.handle_response(response, context=mod.context)
+                self.handle_response(response, context=modrequestobj.context)
 
             client = tornado.httpclient.AsyncHTTPClient()
             try:
-                client.fetch(req, _resp_callback)
+                client.fetch(outreq, _resp_callback)
             except tornado.httpclient.HTTPError as e:
                 if hasattr(e, 'response') and e.response:
                     self.handle_response(e.response, 
-                                         context=mod.context,
+                                         context=modrequestobj.context,
                                          error=True)
                 else:
                     self.set_status(500)
@@ -168,7 +199,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
         def handle_response(self, response, context={}, error=False):
 
-            if debug_level >= 3:
+            if debug_level >= 4:
                 import pprint;
                 print "<<<<<<<< RESPONSE <<<<<<<"
                 pprint.pprint(response.__dict__)
@@ -182,7 +213,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 context=context,
             )
 
-            if debug_level >= 1:
+            if debug_level >= 2:
                 import pprint;
                 print "<<<<<<<< RESPONSEOBJ <<<<<<<"
                 responseprint = copy(responseobj)
@@ -209,7 +240,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 if v:
                     self.set_header(header, v)
 
-            if debug_level >= 2:
+            if debug_level >= 3:
                 import pprint;
                 print ">>>>>>>> RESPONSE >>>>>>>"
                 pprint.pprint(self.__dict__)            
