@@ -155,7 +155,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             requestobj, parsedurl = self.make_requestobj(request)
 
-            if debug_level >= 2:
+            if debug_level >= 3:
                 print "<<<<<<<< REQUESTOBJ <<<<<<<<"
                 pprint.pprint(requestobj.__dict__)
 
@@ -174,9 +174,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             outreq = self.make_request(modrequestobj, parsedurl)
 
-            if debug_level >= 3:
+            if debug_level >= 2:
                 print ">>>>>>>> REQUEST >>>>>>>>"
-                pprint.pprint(outreq.__dict__)
+                print "%s %s" % (outreq.method, outreq.url)
+                for k, v in outreq.headers.items():
+                    print "%s: %s" % (k, v)
 
             # send the request
 
@@ -200,21 +202,18 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
         def handle_response(self, response, context={}, error=False):
 
             if debug_level >= 4:
-                import pprint;
                 print "<<<<<<<< RESPONSE <<<<<<<"
                 pprint.pprint(response.__dict__)
 
             responseobj = ResponseObj(
                 code=response.code,
                 headers=response.headers,
-                pass_headers=('Date', 'Cache-Control', 'Server',
-                    'Content-Type', 'Location'),
+                pass_headers=True,
                 body=response.body,
                 context=context,
             )
 
-            if debug_level >= 2:
-                import pprint;
+            if debug_level >= 3:
                 print "<<<<<<<< RESPONSEOBJ <<<<<<<"
                 responseprint = copy(responseobj)
                 responseprint.body = "-- body content not displayed --"
@@ -231,19 +230,19 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             # set the response headers
 
-            if hasattr(mod, 'pass_headers') and mod.pass_headers:
-                headers = mod.pass_headers
+            if type(mod.pass_headers) == bool:
+                headers = mod.headers.keys() if mod.pass_headers else []
             else:
-                headers = mod.headers.keys()
+                headers = mod.pass_headers
             for header in headers:
                 v = mod.headers.get(header)
                 if v:
                     self.set_header(header, v)
 
-            if debug_level >= 3:
-                import pprint;
+            if debug_level >= 2:
                 print ">>>>>>>> RESPONSE >>>>>>>"
-                pprint.pprint(self.__dict__)            
+                for k, v in self._headers.items():
+                    print "%s: %s" % (k, v)
 
             # set the response body
 
@@ -255,6 +254,10 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
         @tornado.web.asynchronous
         def get(self):
+            self.handle_request(self.request)
+
+        @tornado.web.asynchronous
+        def options(self):
             self.handle_request(self.request)
 
         @tornado.web.asynchronous
