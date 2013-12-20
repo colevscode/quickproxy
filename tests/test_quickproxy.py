@@ -15,6 +15,7 @@ import quickproxy
 TEST_HTTP_SERVER_PORT = 29281
 TEST_HTTP_PROXY_PORT = 30292
 TEST_HTTP_REVPROXY_PORT = 30293
+TEST_HTTP_SERVER2_PORT = 30294
 
 
 class IOLoopRunner(threading.Thread):
@@ -101,6 +102,28 @@ class TestQuickProxy(unittest.TestCase):
         proxy.join()
 
         self.assertEqual(resp, open("test.html").read())
+
+
+    def test_http_server(self):
+
+        def req_callback(request):
+            response = quickproxy.ResponseObj(code=200, body="Hello World")
+            return response
+
+        def setup_proxy():
+            quickproxy.run_proxy(port=TEST_HTTP_SERVER2_PORT,
+                                 req_callback=req_callback,
+                                 start_ioloop=False)
+
+        proxy = IOLoopRunner(setup_proxy)
+        proxy.start()
+
+        resp = self.makeRequest(port=TEST_HTTP_SERVER2_PORT,
+                                path='')
+
+        proxy.join()
+
+        self.assertEqual(resp, "Hello World")
 
 
 if __name__ == '__main__':

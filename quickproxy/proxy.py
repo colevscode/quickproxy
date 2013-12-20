@@ -9,12 +9,12 @@ import tornado.iostream
 import tornado.web
 import tornado.httpclient
 
-__all__ = ['run_proxy']
+__all__ = ['run_proxy', 'RequestObj', 'ResponseObj']
 
 DEFAULT_CALLBACK = lambda r: r
 
 
-class Bunch:
+class Bunch(object):
     def __init__(self, **kwds):
         self.__dict__.update(kwds)
 
@@ -56,7 +56,14 @@ class ResponseObj(Bunch):
     body: response body as a string
     context: the context object from the request
     '''
-    pass
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('code', 200)
+        kwargs.setdefault('headers', {})
+        kwargs.setdefault('pass_headers', True)
+        kwargs.setdefault('body', '')
+        kwargs.setdefault('context', {})
+        super(ResponseObj, self).__init__(**kwargs)
 
 
 def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=0):
@@ -166,6 +173,9 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             modrequestobj = req_callback(requestobj)
 
+            if isinstance(modrequestobj, ResponseObj):
+                self.handle_response(modrequestobj)
+                return
 
             if debug_level >= 1:
                 print debugstr + "to %s:%d%s" % (modrequestobj.host, 
@@ -201,17 +211,20 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
         def handle_response(self, response, context={}, error=False):
 
-            if debug_level >= 4:
-                print "<<<<<<<< RESPONSE <<<<<<<"
-                pprint.pprint(response.__dict__)
+            if not isinstance(response, ResponseObj):
+                if debug_level >= 4:
+                    print "<<<<<<<< RESPONSE <<<<<<<"
+                    pprint.pprint(response.__dict__)
 
-            responseobj = ResponseObj(
-                code=response.code,
-                headers=response.headers,
-                pass_headers=True,
-                body=response.body,
-                context=context,
-            )
+                responseobj = ResponseObj(
+                    code=response.code,
+                    headers=response.headers,
+                    pass_headers=True,
+                    body=response.body,
+                    context=context,
+                )
+            else:
+                responseobj = response
 
             if debug_level >= 3:
                 print "<<<<<<<< RESPONSEOBJ <<<<<<<"
