@@ -1,3 +1,4 @@
+import os
 import sys
 import urlparse
 import pprint
@@ -39,6 +40,7 @@ class RequestObj(Bunch):
     headers: a dictionary of header / value pairs 
         (for example {'Content-Type': 'text/plain', 'Content-Length': 200})
     follow_redirects: true to follow redirects before returning a response
+    validate_cert: false to turn off SSL cert validation
     context: a dictionary to place data that will be accessible to the response
     '''
     pass
@@ -100,13 +102,14 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 username=None,
                 password=None,
                 host=parsedurl.hostname,
-                port=parsedurl.port,
+                port=parsedurl.port or 80,
                 path=parsedurl.path,
                 query=parsedurl.query,
                 fragment=parsedurl.fragment,
                 body=request.body,
                 headers=request.headers,
                 follow_redirects=False,
+                validate_cert=True,
                 context={}
             )
 
@@ -136,7 +139,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 proto=obj.protocol,
                 auth=auth,
                 host=obj.host,
-                port=(u':' + str(obj.port)) if obj.port else u'',
+                port=(u':' + str(obj.port)) if (obj.port and obj.port != 80) else u'',
                 path=u'/'+obj.path.lstrip(u'/') if obj.path else u'',
                 query=u'?'+obj.query.lstrip(u'?') if obj.query else u'',
                 frag=obj.fragment
@@ -197,7 +200,8 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             client = tornado.httpclient.AsyncHTTPClient()
             try:
-                client.fetch(outreq, _resp_callback)
+                client.fetch(outreq, _resp_callback, 
+                             validate_cert=modrequestobj.validate_cert)
             except tornado.httpclient.HTTPError as e:
                 if hasattr(e, 'response') and e.response:
                     self.handle_response(e.response, 
@@ -238,6 +242,12 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 mod = err_callback(responseobj)
 
             # set the response status code
+
+            if mod.code == 599:
+                self.set_status(500)
+                self.write('Internal server error. Server unreachable.')
+                self.finish()
+                return 
 
             self.set_status(mod.code)
 
@@ -302,6 +312,7 @@ def run_proxy(port,
               req_callback=DEFAULT_CALLBACK,
               resp_callback=DEFAULT_CALLBACK,
               err_callback=DEFAULT_CALLBACK,
+              test_ssl=False,
               start_ioloop=True,
               debug_level=0):
 
@@ -316,6 +327,7 @@ def run_proxy(port,
     err_callback: in the case of an error, this callback will be called.
         there's no difference between how this and the resp_callback are 
         used.
+    test_ssl: if true, will wrap the socket in an self signed ssl cert
     start_ioloop: if True (default), the tornado IOLoop will be started 
         immediately.
     debug_level: 0 no debug, 1 basic, 2 verbose
@@ -328,9 +340,23 @@ def run_proxy(port,
                             err_callback=err_callback,
                             debug_level=debug_level)),
     ])
-    app.listen(port)
+
+    if test_ssl:
+        this_dir, this_filename = os.path.split(__file__)
+        kwargs = {
+            "ssl_options": {
+                "certfile": os.path.join(this_dir, "data", "test.crt"),
+                "keyfile": os.path.join(this_dir, "data", "test.key"),
+            }
+        }
+    else:
+        kwargs = {}
+
+    http_server = tornado.httpserver.HTTPServer(app, **kwargs)
+    http_server.listen(port)     
     ioloop = tornado.ioloop.IOLoop.instance()
     if start_ioloop:
+        print ("Starting HTTP proxy on port %d" % port)
         ioloop.start()
     return app
 

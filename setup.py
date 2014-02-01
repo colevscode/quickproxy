@@ -13,4 +13,5 @@ setup(
     install_requires=open(root+"/requirements.txt").read().splitlines(),
     long_description=open(root+"/README.md").read(),
     license='LICENSE',
+    package_data={'quickproxy': ['data/test.*']},
 )
