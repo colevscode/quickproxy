@@ -2,6 +2,9 @@ import os
 import sys
 import urlparse
 import pprint
+import Cookie
+import datetime
+import dateutil.parser
 from copy import copy
 
 import tornado.httpserver
@@ -9,6 +12,7 @@ import tornado.ioloop
 import tornado.iostream
 import tornado.web
 import tornado.httpclient
+import tornado.escape
 
 __all__ = ['run_proxy', 'RequestObj', 'ResponseObj']
 
@@ -121,7 +125,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
             converts a request object into an HTTPRequest
             '''
 
-            obj.headers["Host"] = obj.host
+            obj.headers.setdefault('Host', obj.host)
 
             if obj.username or parsedurl.username or \
                 obj.password or parsedurl.password:
@@ -254,18 +258,35 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
             # set the response headers
 
             if type(mod.pass_headers) == bool:
-                headers = mod.headers.keys() if mod.pass_headers else []
+                header_keys = mod.headers.keys() if mod.pass_headers else []
             else:
-                headers = mod.pass_headers
-            for header in headers:
-                v = mod.headers.get(header)
-                if v:
-                    self.set_header(header, v)
+                header_keys = mod.pass_headers
+            for key in header_keys:
+                if key.lower() == "set-cookie":
+                    cookies = Cookie.BaseCookie()
+                    cookies.load(tornado.escape.native_str(mod.headers.get(key)))
+                    for cookie_key in cookies:
+                        cookie = cookies[cookie_key]
+                        params = dict(cookie)
+                        expires = params.pop('expires', None)
+                        if expires:
+                            expires = dateutil.parser.parse(expires)
+                        self.set_cookie(
+                            cookie.key,
+                            cookie.value,
+                            expires = expires,
+                            **params
+                        )
+                else:
+                    val = mod.headers.get(key)
+                    self.set_header(key, val)
 
             if debug_level >= 2:
-                print ">>>>>>>> RESPONSE >>>>>>>"
+                print ">>>>>>>> RESPONSE (%s) >>>>>>>" % mod.code
                 for k, v in self._headers.items():
                     print "%s: %s" % (k, v)
+                if hasattr(self, '_new_cookie'):
+                    print self._new_cookie.output()
 
             # set the response body
 
