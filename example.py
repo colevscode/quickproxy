@@ -1,8 +1,8 @@
-import quickproxy
-
 import os
 import shlex
 import subprocess
+
+import quickproxy3
 
 '''
 A simple example of how to use quickproxy. To try it, first start up the http
@@ -24,25 +24,26 @@ server on 4040 according to the request modifications applied in the callback.
 To shut down the servers just run `fg` and ^C twice.
 '''
 
+
 def main():
+    def callback(response):
+        response.port = 4040
+        return response
 
-	def callback(response):
-		response.port = 4040
-		return response
-
-	quickproxy.run_proxy(port=8080, req_callback=callback)
+    quickproxy3.run_proxy(port=8080, req_callback=callback)
 
 
 def httpserv():
     cmd = "python -m SimpleHTTPServer %d" % 4040
-    cwd = os.path.dirname(os.path.realpath(__file__))+"/tests"
+    cwd = os.path.dirname(os.path.realpath(__file__)) + "/tests"
     subprocess.call(shlex.split(cmd), cwd=cwd)
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
 
-	import sys
-	if len(sys.argv) > 1:
-		globals()[sys.argv[1]]()
-	else:
-		main()
+    import sys
+
+    if len(sys.argv) > 1:
+        globals()[sys.argv[1]]()
+    else:
+        main()

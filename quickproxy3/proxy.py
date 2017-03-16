@@ -1,18 +1,14 @@
 import os
-import sys
-import urlparse
 import pprint
-import Cookie
-import datetime
-import dateutil.parser
+import sys
+import urllib.parse
 from copy import copy
 
+import tornado.httpclient
 import tornado.httpserver
 import tornado.ioloop
 import tornado.iostream
 import tornado.web
-import tornado.httpclient
-import tornado.escape
 
 __all__ = ['run_proxy', 'RequestObj', 'ResponseObj']
 
@@ -41,7 +37,7 @@ class RequestObj(Bunch):
     username: always passed as None, but you can set it to override the user
     password: None, but can be set to override the password
     body: request body as a string
-    headers: a dictionary of header / value pairs 
+    headers: a dictionary of header / value pairs
         (for example {'Content-Type': 'text/plain', 'Content-Length': 200})
     follow_redirects: true to follow redirects before returning a response
     validate_cert: false to turn off SSL cert validation
@@ -55,7 +51,7 @@ class ResponseObj(Bunch):
     An HTTP response object that contains the following request attributes:
 
     code: response code, such as 200 for 'OK'
-    headers: the response headers 
+    headers: the response headers
     pass_headers: a list or set of headers to pass along in the response. All
         other headeres will be stripped out. By default this includes:
         ('Date', 'Cache-Control', 'Server', 'Content-Type', 'Location')
@@ -73,7 +69,6 @@ class ResponseObj(Bunch):
 
 
 def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=0):
-
     class ProxyHandler(tornado.web.RequestHandler):
 
         SUPPORTED_METHODS = methods
@@ -89,14 +84,14 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
             # and sometimes it just contains the path. :(
 
             url = request.uri
-            if not url.startswith(u'http'):
-                url = u"{proto}://{netloc}{path}".format(
+            if not url.startswith('http'):
+                url = "{proto}://{netloc}{path}".format(
                     proto=request.protocol,
                     netloc=request.host,
                     path=request.uri
                 )
 
-            parsedurl = urlparse.urlparse(url)
+            parsedurl = urllib.parse.urlparse(url)
 
             # create request object
 
@@ -119,18 +114,17 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
 
             return requestobj, parsedurl
 
-
         def make_request(self, obj, parsedurl):
             '''
             converts a request object into an HTTPRequest
             '''
 
-            obj.headers.setdefault('Host', obj.host)
+            obj.headers["Host"] = obj.host
 
             if obj.username or parsedurl.username or \
-                obj.password or parsedurl.password:
+                    obj.password or parsedurl.password:
 
-                auth = u"{username}:{password}@".format(
+                auth = "{username}:{password}@".format(
                     username=obj.username or parsedurl.username,
                     password=obj.password or parsedurl.password
                 )
@@ -138,43 +132,42 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
             else:
                 auth = ''
 
-            url = u"{proto}://{auth}{host}{port}{path}{query}{frag}"
+            url = "{proto}://{auth}{host}{port}{path}{query}{frag}"
             url = url.format(
                 proto=obj.protocol,
                 auth=auth,
                 host=obj.host,
-                port=(u':' + str(obj.port)) if (obj.port and obj.port != 80) else u'',
-                path=u'/'+obj.path.lstrip(u'/') if obj.path else u'',
-                query=u'?'+obj.query.lstrip(u'?') if obj.query else u'',
+                port=(':' + str(obj.port)) if (obj.port and obj.port != 80) else '',
+                path='/' + obj.path.lstrip('/') if obj.path else '',
+                query='?' + obj.query.lstrip('?') if obj.query else '',
                 frag=obj.fragment
             )
 
             req = tornado.httpclient.HTTPRequest(
                 url=url,
-                method=obj.method, 
+                method=obj.method,
                 body=obj.body,
-                headers=obj.headers, 
+                headers=obj.headers,
                 follow_redirects=obj.follow_redirects,
                 allow_nonstandard_methods=True
             )
 
             return req
 
-
         def handle_request(self, request):
 
             if debug_level >= 4:
-                print "<<<<<<<< REQUEST <<<<<<<<"
+                print("<<<<<<<< REQUEST <<<<<<<<")
                 pprint.pprint(request.__dict__)
 
             requestobj, parsedurl = self.make_requestobj(request)
 
             if debug_level >= 3:
-                print "<<<<<<<< REQUESTOBJ <<<<<<<<"
+                print("<<<<<<<< REQUESTOBJ <<<<<<<<")
                 pprint.pprint(requestobj.__dict__)
 
             if debug_level >= 1:
-                debugstr = "serving request from %s:%d%s " % (requestobj.host, 
+                debugstr = "serving request from %s:%d%s " % (requestobj.host,
                                                               requestobj.port or 80,
                                                               requestobj.path)
 
@@ -185,30 +178,26 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 return
 
             if debug_level >= 1:
-                print debugstr + "to %s:%d%s" % (modrequestobj.host, 
-                                                 modrequestobj.port or 80,
-                                                 modrequestobj.path)
+                print(f"{debugstr} to {modrequestobj.host}:{modrequestobj.port or 80}{modrequestobj.path}")
 
             outreq = self.make_request(modrequestobj, parsedurl)
 
             if debug_level >= 2:
-                print ">>>>>>>> REQUEST >>>>>>>>"
-                print "%s %s" % (outreq.method, outreq.url)
-                for k, v in outreq.headers.items():
-                    print "%s: %s" % (k, v)
+                print(">>>>>>>> REQUEST >>>>>>>>")
+                print(f"{outreq.method} {outreq.url}")
+                for k, v in list(outreq.headers.items()):
+                    print(f"{k}: {v}")
 
             # send the request
-
             def _resp_callback(response):
                 self.handle_response(response, context=modrequestobj.context)
 
             client = tornado.httpclient.AsyncHTTPClient()
             try:
-                client.fetch(outreq, _resp_callback, 
-                             validate_cert=modrequestobj.validate_cert)
+                client.fetch(outreq, _resp_callback)
             except tornado.httpclient.HTTPError as e:
                 if hasattr(e, 'response') and e.response:
-                    self.handle_response(e.response, 
+                    self.handle_response(e.response,
                                          context=modrequestobj.context,
                                          error=True)
                 else:
@@ -216,12 +205,11 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                     self.write('Internal server error:\n' + str(e))
                     self.finish()
 
-
         def handle_response(self, response, context={}, error=False):
 
             if not isinstance(response, ResponseObj):
                 if debug_level >= 4:
-                    print "<<<<<<<< RESPONSE <<<<<<<"
+                    print("<<<<<<<< RESPONSE <<<<<<<")
                     pprint.pprint(response.__dict__)
 
                 responseobj = ResponseObj(
@@ -235,7 +223,7 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 responseobj = response
 
             if debug_level >= 3:
-                print "<<<<<<<< RESPONSEOBJ <<<<<<<"
+                print("<<<<<<<< RESPONSEOBJ <<<<<<<")
                 responseprint = copy(responseobj)
                 responseprint.body = "-- body content not displayed --"
                 pprint.pprint(responseprint.__dict__)
@@ -251,42 +239,25 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 self.set_status(500)
                 self.write('Internal server error. Server unreachable.')
                 self.finish()
-                return 
+                return
 
             self.set_status(mod.code)
 
             # set the response headers
 
             if type(mod.pass_headers) == bool:
-                header_keys = mod.headers.keys() if mod.pass_headers else []
+                headers = list(mod.headers.keys()) if mod.pass_headers else []
             else:
-                header_keys = mod.pass_headers
-            for key in header_keys:
-                if key.lower() == "set-cookie":
-                    cookies = Cookie.BaseCookie()
-                    cookies.load(tornado.escape.native_str(mod.headers.get(key)))
-                    for cookie_key in cookies:
-                        cookie = cookies[cookie_key]
-                        params = dict(cookie)
-                        expires = params.pop('expires', None)
-                        if expires:
-                            expires = dateutil.parser.parse(expires)
-                        self.set_cookie(
-                            cookie.key,
-                            cookie.value,
-                            expires = expires,
-                            **params
-                        )
-                else:
-                    val = mod.headers.get(key)
-                    self.set_header(key, val)
+                headers = mod.pass_headers
+            for header in headers:
+                v = mod.headers.get(header)
+                if v:
+                    self.set_header(header, v)
 
             if debug_level >= 2:
-                print ">>>>>>>> RESPONSE (%s) >>>>>>>" % mod.code
-                for k, v in self._headers.items():
-                    print "%s: %s" % (k, v)
-                if hasattr(self, '_new_cookie'):
-                    print self._new_cookie.output()
+                print(">>>>>>>> RESPONSE >>>>>>>")
+                for k, v in list(self._headers.items()):
+                    print(f"{k} {v}")
 
             # set the response body
 
@@ -294,7 +265,6 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
                 self.write(mod.body)
 
             self.finish()
-
 
         @tornado.web.asynchronous
         def get(self):
@@ -324,21 +294,19 @@ def _make_proxy(methods, req_callback, resp_callback, err_callback, debug_level=
         def delete(self):
             self.handle_request(self.request)
 
-
     return ProxyHandler
 
 
 def run_proxy(port,
-              methods=['GET', 'POST'], 
+              methods=['GET', 'POST'],
               req_callback=DEFAULT_CALLBACK,
               resp_callback=DEFAULT_CALLBACK,
               err_callback=DEFAULT_CALLBACK,
               test_ssl=False,
               start_ioloop=True,
               debug_level=0):
-
     """
-    Run proxy on the specified port. 
+    Run proxy on the specified port.
 
     methods: the HTTP methods this proxy will support
     req_callback: a callback that is passed a RequestObj that it should
@@ -346,10 +314,10 @@ def run_proxy(port,
     resp_callback: a callback that is given a ResponseObj that it should
         modify and then return
     err_callback: in the case of an error, this callback will be called.
-        there's no difference between how this and the resp_callback are 
+        there's no difference between how this and the resp_callback are
         used.
     test_ssl: if true, will wrap the socket in an self signed ssl cert
-    start_ioloop: if True (default), the tornado IOLoop will be started 
+    start_ioloop: if True (default), the tornado IOLoop will be started
         immediately.
     debug_level: 0 no debug, 1 basic, 2 verbose
     """
@@ -374,10 +342,10 @@ def run_proxy(port,
         kwargs = {}
 
     http_server = tornado.httpserver.HTTPServer(app, **kwargs)
-    http_server.listen(port)     
+    http_server.listen(port)
     ioloop = tornado.ioloop.IOLoop.instance()
     if start_ioloop:
-        print ("Starting HTTP proxy on port %d" % port)
+        print(f"Starting HTTP proxy on port {port}")
         ioloop.start()
     return app
 
@@ -387,5 +355,5 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         port = int(sys.argv[1])
 
-    print ("Starting HTTP proxy on port %d" % port)
+    print(f"Starting HTTP proxy on port {port}")
     run_proxy(port)
