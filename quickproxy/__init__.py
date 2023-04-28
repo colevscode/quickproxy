@@ -1,1 +1,1 @@
-from proxy import *
+from .proxy import *
